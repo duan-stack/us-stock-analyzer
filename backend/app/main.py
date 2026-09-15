@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.config import PROJECT_ROOT
+from app.config import PROJECT_ROOT, get_settings
 from app.db import init_db
 from app.futu_client import FutuError, get_quote_client
 from app.routers import health, market, stocks, watchlist
@@ -23,15 +23,16 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="美股投研", lifespan=lifespan)
+cors_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
+    *[item.strip() for item in get_settings().cors_origins.split(",") if item.strip()],
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://127.0.0.1:5173",
-        "http://localhost:4173",
-        "http://127.0.0.1:4173",
-        "http://8.138.91.128",
-    ],
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

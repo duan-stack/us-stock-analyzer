@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     kline_cache_ttl_minute_sec: int = 300
     news_cache_ttl_sec: int = 1800
     report_cache_ttl_sec: int = 6 * 3600
+    cors_origins: str = ""
 
     model_config = SettingsConfigDict(
         env_file=(PROJECT_ROOT / ".env", BACKEND_DIR / ".env"),
