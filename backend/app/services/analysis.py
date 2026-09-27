@@ -5,7 +5,7 @@ from typing import Any
 
 from app.codes import display_symbol, market_of
 
-LOGIC_VERSION = "logic-v3"
+LOGIC_VERSION = "logic-v4"
 FRAMEWORK_NAME = "四维分析"
 FRAMEWORK_MARK = f"<!-- {LOGIC_VERSION} -->"
 
@@ -36,6 +36,20 @@ BEAR_NEWS = (
     "预警",
     "造假",
 )
+
+NEWS_TAGS = (
+    ("财报", ("earnings", "财报", "营收", "profit", "eps", "guidance", "outlook")),
+    ("评级", ("upgrade", "downgrade", "target", "rating", "上调", "下调", "目标价", "买入", "卖出")),
+    ("宏观", ("fed", "rate", "inflation", "treasury", "宏观", "美联储", "降息", "加息")),
+)
+
+
+def classify_news_item(title: str) -> str:
+    text = (title or "").lower()
+    for tag, keys in NEWS_TAGS:
+        if any(key.lower() in text for key in keys):
+            return tag
+    return "一般"
 
 
 def _f(value: Any) -> float | None:
@@ -213,6 +227,51 @@ def _trend_dimension(ind: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _session_evidence(snapshot: dict[str, Any], evidence: list[str], score: int) -> int:
+    pre = _f(snapshot.get("pre_change_rate"))
+    after = _f(snapshot.get("after_change_rate"))
+    # Futu may return percent already (e.g. 1.75) or fraction; normalize large values as percent.
+    def _as_frac(value: float | None) -> float | None:
+        if value is None:
+            return None
+        return value / 100.0 if abs(value) > 1.5 else value
+
+    pre_f = _as_frac(pre)
+    after_f = _as_frac(after)
+    if pre is not None:
+        evidence.append(f"盘前变动 {_fmt(pre, 2)}%（价 {_fmt(_f(snapshot.get('pre_price')))}）")
+        if pre_f is not None:
+            if pre_f <= -0.02:
+                score -= 1
+                evidence.append("盘前明显低开，隔夜风险升温")
+            elif pre_f >= 0.02:
+                score += 1
+                evidence.append("盘前明显高开，短线情绪偏暖")
+    if after is not None:
+        evidence.append(f"盘后变动 {_fmt(after, 2)}%（价 {_fmt(_f(snapshot.get('after_price')))}）")
+        if after_f is not None and after_f <= -0.02:
+            evidence.append("盘后走弱，留意隔夜延续")
+        elif after_f is not None and after_f >= 0.02:
+            evidence.append("盘后走强，留意隔夜延续")
+    return score
+
+
+def _relative_evidence(ind: dict[str, Any], evidence: list[str], score: int) -> int:
+    vs20 = _f(ind.get("excess_return_20d_spy"))
+    vs5 = _f(ind.get("excess_return_5d_spy"))
+    if vs20 is not None:
+        evidence.append(f"近 20 日相对 SPY 超额 {_pct(vs20)}")
+        if vs20 >= 0.05:
+            score += 1
+            evidence.append("相对大盘偏强，个股有独立动量")
+        elif vs20 <= -0.05:
+            score -= 1
+            evidence.append("相对大盘偏弱，上涨需更强催化")
+    elif vs5 is not None:
+        evidence.append(f"近 5 日相对 SPY 超额 {_pct(vs5)}")
+    return score
+
+
 def _position_dimension(ind: dict[str, Any], snapshot: dict[str, Any]) -> dict[str, Any]:
     price = _f(ind.get("last_close"))
     rsi = _f(ind.get("rsi14"))
@@ -254,6 +313,8 @@ def _position_dimension(ind: dict[str, Any], snapshot: dict[str, Any]) -> dict[s
             score += 1
         elif ret20 <= -0.08:
             score -= 1
+    score = _relative_evidence(ind, evidence, score)
+    score = _session_evidence(snapshot, evidence, score)
     if not evidence:
         return {
             "id": "position",
@@ -366,14 +427,21 @@ def _value_dimension(snapshot: dict[str, Any], news_items: list[dict[str, Any]])
             evidence.append("PB 低于 1，资产价格偏低或盈利能力存疑")
     bull = 0
     bear = 0
+    tag_counts: dict[str, int] = {}
     for item in news_items[:12]:
-        title = str(item.get("title") or "").lower()
-        if any(k.lower() in title for k in BULL_NEWS):
+        title = str(item.get("title") or "")
+        lower = title.lower()
+        tag = classify_news_item(title)
+        tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        if any(k.lower() in lower for k in BULL_NEWS):
             bull += 1
-        if any(k.lower() in title for k in BEAR_NEWS):
+        if any(k.lower() in lower for k in BEAR_NEWS):
             bear += 1
     if news_items:
+        tag_line = "、".join(f"{k} {v}" for k, v in sorted(tag_counts.items(), key=lambda x: -x[1]))
         evidence.append(f"近条资讯中偏多关键词 {bull} 条、偏空关键词 {bear} 条")
+        if tag_line:
+            evidence.append(f"资讯标签：{tag_line}")
         if bull - bear >= 2:
             score += 1
         elif bear - bull >= 2:
@@ -493,17 +561,32 @@ def _watchlist(bias: str, levels: dict[str, Any], ind: dict[str, Any]) -> list[s
     return items[:5]
 
 
+def attach_benchmark(ind: dict[str, Any], bench_bars: list[dict[str, Any]] | None) -> dict[str, Any]:
+    if not bench_bars:
+        return ind
+    bench = compute_indicators(bench_bars)
+    out = dict(ind)
+    for key in ("return_5d", "return_20d", "return_60d"):
+        stock_ret = _f(ind.get(key))
+        bench_ret = _f(bench.get(key))
+        if stock_ret is not None and bench_ret is not None:
+            out[f"excess_{key}_spy"] = stock_ret - bench_ret
+    out["spy_return_20d"] = bench.get("return_20d")
+    return out
+
+
 def build_logic(
     code: str,
     snapshot: dict[str, Any] | None,
     bars: list[dict[str, Any]],
     drawdown: dict[str, Any] | None,
     news_items: list[dict[str, Any]] | None = None,
+    benchmark_bars: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     snapshot = snapshot or {}
     drawdown = {k: v for k, v in (drawdown or {}).items() if k != "series"}
     news_items = news_items or []
-    ind = compute_indicators(bars, snapshot)
+    ind = attach_benchmark(compute_indicators(bars, snapshot), benchmark_bars)
     dimensions = [
         _trend_dimension(ind),
         _position_dimension(ind, snapshot),
@@ -512,6 +595,10 @@ def build_logic(
     ]
     verdict = _verdict(dimensions, ind)
     levels = _levels(ind, snapshot, verdict["bias"])
+    watch = _watchlist(verdict["bias"], levels, ind)
+    excess20 = _f(ind.get("excess_return_20d_spy"))
+    if excess20 is not None:
+        watch.insert(1, f"近 20 日相对 SPY 超额 {_pct(excess20)}，用大盘过滤假突破")
     return {
         "version": LOGIC_VERSION,
         "framework": FRAMEWORK_NAME,
@@ -523,7 +610,7 @@ def build_logic(
         "verdict": verdict,
         "dimensions": dimensions,
         "levels": levels,
-        "watchlist": _watchlist(verdict["bias"], levels, ind),
+        "watchlist": watch[:6],
         "indicators": {k: _round(v, 6) if isinstance(v, float) else v for k, v in ind.items()},
         "disclaimer": "以上为规则化研究框架，仅供分析参考，不构成投资建议。",
     }

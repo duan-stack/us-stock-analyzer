@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     news_cache_ttl_sec: int = 1800
     report_cache_ttl_sec: int = 6 * 3600
     cors_origins: str = ""
+    access_token: str = ""
 
     model_config = SettingsConfigDict(
         env_file=(PROJECT_ROOT / ".env", BACKEND_DIR / ".env"),

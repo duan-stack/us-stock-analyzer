@@ -3,6 +3,7 @@ from fastapi import APIRouter
 from app.db import list_watchlist
 from app.futu_client import FutuError, get_quote_client
 from app.routers.health import market_state_label
+from app.services.board_filter import filter_board_items
 from app.services.serialize import df_records
 from app.services.snapshot import get_snapshots, shape_hot, shape_rank
 from app.services.us_session import us_equity_session
@@ -24,12 +25,14 @@ def _empty_board(error: str | None) -> dict:
 
 def _optional_rank(market: object, sort_dir: object | None) -> dict:
     try:
-        kwargs = {"market": market, "count": 10}
+        # Pull a wider pool so OTC / obscure ADR noise can be filtered out.
+        kwargs = {"market": market, "count": 40}
         if sort_dir is not None:
             kwargs["sort_dir"] = sort_dir
         data = get_quote_client().call("get_top_movers_rank", **kwargs)
         df = data[1] if isinstance(data, tuple) and len(data) >= 2 else data
-        return {"available": True, "items": [shape_rank(row) for row in df_records(df)]}
+        items = filter_board_items([shape_rank(row) for row in df_records(df)], limit=10)
+        return {"available": True, "items": items}
     except FutuError as exc:
         return {"available": False, "error": exc.message, "items": []}
     except Exception as exc:
@@ -38,9 +41,10 @@ def _optional_rank(market: object, sort_dir: object | None) -> dict:
 
 def _optional_hot(market: object) -> dict:
     try:
-        data = get_quote_client().call("get_hot_list", market=market, count=10)
+        data = get_quote_client().call("get_hot_list", market=market, count=30)
         df = data[1] if isinstance(data, tuple) and len(data) >= 2 else data
-        return {"available": True, "items": [shape_hot(row) for row in df_records(df)]}
+        items = filter_board_items([shape_hot(row) for row in df_records(df)], limit=10)
+        return {"available": True, "items": items}
     except FutuError as exc:
         return {"available": False, "error": exc.message, "items": []}
     except Exception as exc:

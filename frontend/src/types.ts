@@ -40,6 +40,8 @@ export type WatchlistItem = {
   code: string;
   name: string;
   added_at: string;
+  pinned?: boolean;
+  sort_order?: number;
 };
 
 export type SearchItem = {
@@ -86,6 +88,7 @@ export type NewsItem = {
   url?: string | null;
   news_sub_type?: string | null;
   channel?: string | null;
+  tag?: string | null;
 };
 
 export type NewsSourceStatus = {
@@ -99,6 +102,13 @@ export type OptionalBlock<T> = {
   available: boolean;
   error?: string | null;
   items: T[];
+};
+
+export type CacheStats = {
+  kline_cache?: number;
+  news_cache?: number;
+  reports?: number;
+  watchlist?: number;
 };
 
 export type HealthResponse = {
@@ -117,6 +127,8 @@ export type HealthResponse = {
     model: string;
     base_url: string;
   };
+  cache?: CacheStats;
+  access?: { required?: boolean };
 };
 
 export type MarketBoard = {
@@ -207,4 +219,6 @@ export type SettingsResponse = {
   deepseek_model: string;
   deepseek_base_url: string;
   report_cache_hours: number;
+  access_required?: boolean;
+  cache?: CacheStats;
 };

@@ -38,7 +38,7 @@ export default function LogicBoard({ logic }: { logic: AnalysisLogic }) {
             </div>
             <p>{dim.summary}</p>
             <ul>
-              {(dim.evidence || []).slice(0, 4).map((item) => (
+              {(dim.evidence || []).slice(0, 8).map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>

@@ -194,6 +194,30 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .quote-head { display: flex; justify-content: space-between; gap: 16px; align-items: flex-end; flex-wrap: wrap; }
 .quote-head .price { font-size: 32px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.row-actions { display: flex; flex-wrap: wrap; gap: 4px; justify-content: flex-end; }
+.access-gate {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(29, 78, 216, 0.08), transparent 40%),
+    var(--bg);
+}
+.access-card {
+  width: min(420px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.access-card input {
+  width: 100%;
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 16px;
+}
 .metric {
   background: var(--bg-elev-2);
   border-radius: 8px;
@@ -310,6 +334,12 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 @media (max-width: 1100px) {
   .detail-grid, .grid-2, .grid-3 { grid-template-columns: 1fr; }
   .metrics { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 860px) {
+  .metrics { grid-template-columns: 1fr 1fr; }
+  .metric .val { font-size: 15px; }
+  .row-actions .btn { min-height: 36px; padding: 6px 8px; font-size: 12px; }
 }
 
 @media (max-width: 860px) {

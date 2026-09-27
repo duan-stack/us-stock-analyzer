@@ -44,13 +44,14 @@ npm run dev
 | `DEEPSEEK_API_KEY` | DeepSeek 密钥，不入库 |
 | `DEEPSEEK_BASE_URL` | 默认 `https://api.deepseek.com` |
 | `DEEPSEEK_MODEL` | 默认 `deepseek-chat` |
+| `ACCESS_TOKEN` | 可选；设置后 API 需访问口令（Cookie / `X-Access-Token`） |
 
 ## 页面
 
-- **总览**：美股交易时段（纽约时间）、自选快照（含盘前/盘后）、领涨领跌与热议
-- **自选**：本地 SQLite 保存；搜索加入美股代码，如 `AAPL` / `US.NVDA`
-- **个股**：快照、K 线（5m/15m/60m/日/周）、回撤水下图、多源资讯、板块/资金流向/简介（可选失败）、四维分析与 AI 解读
-- **设置**：OpenD host/port、美股时段、DeepSeek 是否已配置
+- **总览**：美股交易时段（纽约时间）、自选快照（含盘前/盘后）、主流股领涨领跌与热议（过滤 OTC/粉单 ADR）
+- **自选**：本地 SQLite 保存；搜索加入；支持置顶与上下移排序
+- **个股**：快照、K 线、回撤、带标签资讯、四维分析（盘前盘后 / 相对 SPY）与 AI 解读（对比上次结论）
+- **设置**：OpenD、美股时段、DeepSeek、缓存规模、访问口令是否开启
 
 默认自选：`US.AAPL` `US.NVDA` `US.MSFT` `US.AMZN` `US.GOOGL` `US.META` `US.TSLA` `US.SPY` `US.QQQ`
 

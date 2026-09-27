@@ -30,6 +30,7 @@ export default function NewsList({
             <div className="meta">
               {item.publish_time || ""}
               {item.publish_time ? " · " : ""}
+              {item.tag ? <span className="chip">{item.tag}</span> : null}
               <span className="chip">{item.source || item.news_sub_type || "资讯"}</span>
             </div>
             {item.url ? (

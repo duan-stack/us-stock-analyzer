@@ -29,7 +29,10 @@ export default function WatchlistSidebar({ items, quotes, onRefresh, open = fals
               className={({ isActive }) => `watch-item${isActive ? " active" : ""}`}
             >
               <div>
-                <div className="sym">{displaySymbol(item.code)}</div>
+                <div className="sym">
+                  {item.pinned ? "★ " : ""}
+                  {displaySymbol(item.code)}
+                </div>
                 <div className="name">{item.name || item.code}</div>
               </div>
               <div className="watch-quote">

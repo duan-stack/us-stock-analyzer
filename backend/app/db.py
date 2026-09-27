@@ -59,6 +59,11 @@ def db_cursor() -> Iterator[sqlite3.Cursor]:
         raise
 
 
+def _table_columns(cur: sqlite3.Cursor, table: str) -> set[str]:
+    cur.execute(f"PRAGMA table_info({table})")
+    return {str(row["name"]) for row in cur.fetchall()}
+
+
 def init_db() -> None:
     with db_cursor() as cur:
         cur.executescript(
@@ -87,43 +92,108 @@ def init_db() -> None:
             );
             """
         )
+        wl_cols = _table_columns(cur, "watchlist")
+        if "pinned" not in wl_cols:
+            cur.execute("ALTER TABLE watchlist ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0")
+        if "sort_order" not in wl_cols:
+            cur.execute("ALTER TABLE watchlist ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0")
+        report_cols = _table_columns(cur, "reports")
+        if "logic_json" not in report_cols:
+            cur.execute("ALTER TABLE reports ADD COLUMN logic_json TEXT NOT NULL DEFAULT ''")
+
         cur.execute("DELETE FROM watchlist WHERE code NOT LIKE 'US.%'")
         cur.execute("DELETE FROM reports WHERE code NOT LIKE 'US.%'")
         now = utc_now()
-        for code, name in DEFAULT_WATCHLIST:
+        for idx, (code, name) in enumerate(DEFAULT_WATCHLIST):
             cur.execute("SELECT 1 FROM watchlist WHERE code = ?", (code,))
             if cur.fetchone() is None:
                 cur.execute(
-                    "INSERT INTO watchlist (code, name, added_at) VALUES (?, ?, ?)",
-                    (code, name, now),
+                    "INSERT INTO watchlist (code, name, added_at, pinned, sort_order) VALUES (?, ?, ?, 0, ?)",
+                    (code, name, now, idx),
                 )
 
 
 def list_watchlist() -> list[dict[str, Any]]:
     with db_cursor() as cur:
-        cur.execute("SELECT code, name, added_at FROM watchlist WHERE code LIKE 'US.%' ORDER BY added_at ASC")
-        return [dict(row) for row in cur.fetchall()]
+        cur.execute(
+            """
+            SELECT code, name, added_at, pinned, sort_order
+            FROM watchlist
+            WHERE code LIKE 'US.%'
+            ORDER BY pinned DESC, sort_order ASC, added_at ASC
+            """
+        )
+        rows = []
+        for row in cur.fetchall():
+            item = dict(row)
+            item["pinned"] = bool(item.get("pinned"))
+            rows.append(item)
+        return rows
 
 
 def add_watchlist(code: str, name: str = "") -> dict[str, Any]:
     now = utc_now()
     with db_cursor() as cur:
+        cur.execute("SELECT COALESCE(MAX(sort_order), 0) + 1 AS next_order FROM watchlist")
+        next_order = int(cur.fetchone()["next_order"] or 0)
         cur.execute(
             """
-            INSERT INTO watchlist (code, name, added_at)
-            VALUES (?, ?, ?)
+            INSERT INTO watchlist (code, name, added_at, pinned, sort_order)
+            VALUES (?, ?, ?, 0, ?)
             ON CONFLICT(code) DO UPDATE SET name = excluded.name
             """,
-            (code, name, now),
+            (code, name, now, next_order),
         )
-        cur.execute("SELECT code, name, added_at FROM watchlist WHERE code = ?", (code,))
-        return dict(cur.fetchone())
+        cur.execute(
+            "SELECT code, name, added_at, pinned, sort_order FROM watchlist WHERE code = ?",
+            (code,),
+        )
+        item = dict(cur.fetchone())
+        item["pinned"] = bool(item.get("pinned"))
+        return item
+
+
+def set_watchlist_pinned(code: str, pinned: bool) -> dict[str, Any] | None:
+    with db_cursor() as cur:
+        cur.execute("UPDATE watchlist SET pinned = ? WHERE code = ?", (1 if pinned else 0, code))
+        if cur.rowcount <= 0:
+            return None
+        cur.execute(
+            "SELECT code, name, added_at, pinned, sort_order FROM watchlist WHERE code = ?",
+            (code,),
+        )
+        row = cur.fetchone()
+        if not row:
+            return None
+        item = dict(row)
+        item["pinned"] = bool(item.get("pinned"))
+        return item
+
+
+def reorder_watchlist(codes: list[str]) -> list[dict[str, Any]]:
+    with db_cursor() as cur:
+        for idx, code in enumerate(codes):
+            cur.execute("UPDATE watchlist SET sort_order = ? WHERE code = ?", (idx, code))
+    return list_watchlist()
 
 
 def remove_watchlist(code: str) -> bool:
     with db_cursor() as cur:
         cur.execute("DELETE FROM watchlist WHERE code = ?", (code,))
         return cur.rowcount > 0
+
+
+def cache_stats() -> dict[str, int]:
+    with db_cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS c FROM kline_cache")
+        kline = int(cur.fetchone()["c"])
+        cur.execute("SELECT COUNT(*) AS c FROM news_cache")
+        news = int(cur.fetchone()["c"])
+        cur.execute("SELECT COUNT(*) AS c FROM reports")
+        reports = int(cur.fetchone()["c"])
+        cur.execute("SELECT COUNT(*) AS c FROM watchlist WHERE code LIKE 'US.%'")
+        watch = int(cur.fetchone()["c"])
+    return {"kline_cache": kline, "news_cache": news, "reports": reports, "watchlist": watch}
 
 
 def get_cache(table: str, cache_key: str, ttl_sec: int) -> str | None:
@@ -173,7 +243,7 @@ def set_cache(table: str, cache_key: str, payload: str, extra: dict[str, Any] | 
 
 def get_report(code: str, ttl_sec: int) -> dict[str, Any] | None:
     with db_cursor() as cur:
-        cur.execute("SELECT markdown, created_at FROM reports WHERE code = ?", (code,))
+        cur.execute("SELECT markdown, created_at, logic_json FROM reports WHERE code = ?", (code,))
         row = cur.fetchone()
         if not row:
             return None
@@ -186,22 +256,31 @@ def get_report(code: str, ttl_sec: int) -> dict[str, Any] | None:
             "code": code,
             "markdown": row["markdown"],
             "created_at": row["created_at"],
+            "logic_json": row["logic_json"] or "",
             "expired": expired,
             "age_sec": int(age),
         }
 
 
-def save_report(code: str, markdown: str) -> dict[str, Any]:
+def save_report(code: str, markdown: str, logic_json: str = "") -> dict[str, Any]:
     now = utc_now()
     with db_cursor() as cur:
         cur.execute(
             """
-            INSERT INTO reports (code, markdown, created_at)
-            VALUES (?, ?, ?)
+            INSERT INTO reports (code, markdown, created_at, logic_json)
+            VALUES (?, ?, ?, ?)
             ON CONFLICT(code) DO UPDATE SET
                 markdown = excluded.markdown,
-                created_at = excluded.created_at
+                created_at = excluded.created_at,
+                logic_json = excluded.logic_json
             """,
-            (code, markdown, now),
+            (code, markdown, now, logic_json),
         )
-    return {"code": code, "markdown": markdown, "created_at": now, "expired": False, "cached": False}
+    return {
+        "code": code,
+        "markdown": markdown,
+        "created_at": now,
+        "logic_json": logic_json,
+        "expired": False,
+        "cached": False,
+    }

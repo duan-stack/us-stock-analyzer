@@ -69,8 +69,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ code, name }),
     }),
+  pinWatchlist: (code: string, pinned: boolean) =>
+    request<{ item: WatchlistItem }>(`/api/watchlist/${encodeURIComponent(code)}/pin`, {
+      method: "POST",
+      body: JSON.stringify({ pinned }),
+    }),
+  reorderWatchlist: (codes: string[]) =>
+    request<{ items: WatchlistItem[] }>("/api/watchlist/reorder", {
+      method: "POST",
+      body: JSON.stringify({ codes }),
+    }),
   removeWatchlist: (code: string) =>
     request<{ ok: boolean }>(`/api/watchlist/${encodeURIComponent(code)}`, { method: "DELETE" }),
+  accessStatus: () => request<{ required: boolean }>("/api/access/status"),
+  accessLogin: (token: string) =>
+    request<{ ok: boolean; required?: boolean }>("/api/access/login", {
+      method: "POST",
+      body: JSON.stringify({ token }),
+    }),
+  accessLogout: () => request<{ ok: boolean }>("/api/access/logout", { method: "POST" }),
   search: (q: string) => request<{ items: SearchItem[] }>(`/api/stocks/search?q=${encodeURIComponent(q)}`),
   snapshot: (code: string) => request<Snapshot>(`/api/stocks/${encodeURIComponent(code)}/snapshot`),
   kline: (code: string, ktype: string) =>

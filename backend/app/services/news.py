@@ -15,6 +15,7 @@ from app.codes import display_symbol, yahoo_symbol
 from app.config import get_settings
 from app.db import get_cache, set_cache
 from app.futu_client import FutuError, get_quote_client
+from app.services.analysis import classify_news_item
 from app.services.serialize import df_records, pick
 
 _HTTP_HEADERS = {
@@ -320,6 +321,9 @@ def search_news(code: str, name: str = "", max_count: int = 20) -> dict[str, Any
     cached = get_cache("news_cache", cache_key, settings.news_cache_ttl_sec)
     if cached:
         payload = json.loads(cached)
+        for item in payload.get("items") or []:
+            if isinstance(item, dict) and not item.get("tag"):
+                item["tag"] = classify_news_item(str(item.get("title") or ""))
         payload["cached"] = True
         return payload
 
@@ -372,6 +376,8 @@ def search_news(code: str, name: str = "", max_count: int = 20) -> dict[str, Any
     source_order = {label: idx for idx, (label, _) in enumerate(fetchers)}
     sources.sort(key=lambda row: source_order.get(str(row.get("name")), 99))
     items = merge_news_items(batches, limit=max_count)
+    for item in items:
+        item["tag"] = classify_news_item(str(item.get("title") or ""))
     payload = {
         "code": code,
         "keyword": " ".join(_keywords(code, name)),

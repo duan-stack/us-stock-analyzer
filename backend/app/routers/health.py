@@ -1,6 +1,14 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Response
+from pydantic import BaseModel, Field
 
+from app.auth import (
+    access_configured,
+    clear_access_cookie,
+    set_access_cookie,
+    token_ok,
+)
 from app.config import get_settings
+from app.db import cache_stats
 from app.futu_client import get_quote_client
 from app.services.us_session import us_equity_session
 
@@ -42,6 +50,10 @@ def market_state_label(state: str | None) -> str | None:
 market_us_label = market_state_label
 
 
+class AccessLoginIn(BaseModel):
+    token: str = Field(..., min_length=1)
+
+
 @router.get("/api/health")
 def health() -> dict:
     settings = get_settings()
@@ -70,6 +82,10 @@ def health() -> dict:
             "model": settings.deepseek_model,
             "base_url": settings.deepseek_base_url,
         },
+        "cache": cache_stats(),
+        "access": {
+            "required": access_configured(),
+        },
     }
 
 
@@ -83,4 +99,27 @@ def settings_view() -> dict:
         "deepseek_model": settings.deepseek_model,
         "deepseek_base_url": settings.deepseek_base_url,
         "report_cache_hours": settings.report_cache_ttl_sec / 3600,
+        "access_required": access_configured(),
+        "cache": cache_stats(),
     }
+
+
+@router.get("/api/access/status")
+def access_status() -> dict:
+    return {"required": access_configured()}
+
+
+@router.post("/api/access/login")
+def access_login(body: AccessLoginIn, response: Response) -> dict:
+    if not access_configured():
+        return {"ok": True, "required": False}
+    if not token_ok(body.token):
+        raise HTTPException(status_code=401, detail="口令不正确")
+    set_access_cookie(response, body.token.strip())
+    return {"ok": True, "required": True}
+
+
+@router.post("/api/access/logout")
+def access_logout(response: Response) -> dict:
+    clear_access_cookie(response)
+    return {"ok": True}
